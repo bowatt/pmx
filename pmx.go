@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -27,6 +28,7 @@ type Executor interface {
 func Insert(ctx context.Context, e Executor, entity any) (pgconn.CommandTag, error) {
 	t := reflect.TypeOf(entity)
 	v := reflect.ValueOf(entity)
+	uuidT := reflect.TypeOf(uuid.Nil)
 
 	if t.Kind() != reflect.Ptr {
 		return pgconn.CommandTag{}, ErrInvalidRef
@@ -62,7 +64,33 @@ func Insert(ctx context.Context, e Executor, entity any) (pgconn.CommandTag, err
 			values = append(values, "default")
 			continue
 		}
-		args = append(args, v.Field(i).Interface())
+
+		fv := v.Field(i)
+		if fv.Kind() == reflect.Ptr && fv.IsNil() {
+			args = append(args, nil)
+			values = append(values, fmt.Sprintf("$%d", len(args)))
+			continue
+		}
+
+		switch {
+		case fv.Type() == uuidT || fv.Type().ConvertibleTo(uuidT):
+			u := fv.Convert(uuidT).Interface().(uuid.UUID)
+			if u == uuid.Nil {
+				args = append(args, nil)
+				values = append(values, fmt.Sprintf("$%d", len(args)))
+				continue
+			}
+		case fv.Kind() == reflect.Ptr &&
+			(fv.Type().Elem() == uuidT || fv.Type().Elem().ConvertibleTo(uuidT)):
+			u := fv.Elem().Convert(uuidT).Interface().(uuid.UUID)
+			if u == uuid.Nil {
+				args = append(args, nil)
+				values = append(values, fmt.Sprintf("$%d", len(args)))
+				continue
+			}
+		}
+
+		args = append(args, fv.Interface())
 		values = append(values, fmt.Sprintf("$%d", len(args)))
 	}
 
