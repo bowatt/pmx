@@ -18,6 +18,7 @@ import (
 var (
 	ErrInvalidRef = errors.New("invalid ref")
 	ErrNoRows     = pgx.ErrNoRows
+	ErrNoTableTag = errors.New("no table tag")
 )
 
 type Executor interface {
@@ -41,9 +42,14 @@ func Insert(ctx context.Context, e Executor, entity any) (pgconn.CommandTag, err
 		return pgconn.CommandTag{}, ErrInvalidRef
 	}
 
+	tableTag, ok := t.Field(0).Tag.Lookup("table")
+	if !ok {
+		return pgconn.CommandTag{}, ErrNoTableTag
+	}
+
 	buf := bytes.NewBufferString(fmt.Sprintf(
 		"insert into %s ",
-		t.Field(0).Tag.Get("table"),
+		tableTag,
 	))
 
 	columns := []string{}
