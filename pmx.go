@@ -79,7 +79,7 @@ func Insert(ctx context.Context, e Executor, entity any) (pgconn.CommandTag, err
 		}
 
 		switch {
-		case fv.Type() == uuidT || fv.Type().ConvertibleTo(uuidT):
+		case (fv.Type() == uuidT || fv.Type().ConvertibleTo(uuidT)) && fv.CanConvert(uuidT):
 			u := fv.Convert(uuidT).Interface().(uuid.UUID)
 			if u == uuid.Nil {
 				args = append(args, nil)
@@ -87,7 +87,7 @@ func Insert(ctx context.Context, e Executor, entity any) (pgconn.CommandTag, err
 				continue
 			}
 		case fv.Kind() == reflect.Ptr &&
-			(fv.Type().Elem() == uuidT || fv.Type().Elem().ConvertibleTo(uuidT)):
+			(fv.Type().Elem() == uuidT || fv.Type().Elem().ConvertibleTo(uuidT)) && fv.Elem().CanConvert(uuidT):
 			u := fv.Elem().Convert(uuidT).Interface().(uuid.UUID)
 			if u == uuid.Nil {
 				args = append(args, nil)
