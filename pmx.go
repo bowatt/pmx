@@ -212,13 +212,7 @@ func scanFields(rows pgx.Rows, t reflect.Type) (reflect.Value, error) {
 	v := ptr.Elem()
 
 	for _, fd := range rows.FieldDescriptions() {
-		var field any
-		for i := 0; i < t.NumField(); i++ {
-			if t.Field(i).Tag.Get("db") != fd.Name {
-				continue
-			}
-			field = v.Field(i).Addr().Interface()
-		}
+		field := findFieldByDBTag(t, v, fd.Name)
 		fields = append(fields, field)
 	}
 
@@ -234,4 +228,44 @@ func scanFields(rows pgx.Rows, t reflect.Type) (reflect.Value, error) {
 	}
 
 	return ptr, nil
+}
+
+func findFieldByDBTag(t reflect.Type, v reflect.Value, name string) any {
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		fv := v.Field(i)
+
+		tag := sf.Tag.Get("db")
+		tagName, inline := parseDBTag(tag)
+
+		if tagName == name {
+			return fv.Addr().Interface()
+		}
+
+		if inline && sf.Anonymous && sf.Type.Kind() == reflect.Struct {
+			if field := findFieldByDBTag(sf.Type, fv, name); field != nil {
+				return field
+			}
+		}
+	}
+
+	return nil
+}
+
+func parseDBTag(tag string) (name string, inline bool) {
+	if tag == "" {
+		return "", false
+	}
+
+	parts := strings.Split(tag, ",")
+	name = parts[0]
+
+	for _, p := range parts[1:] {
+		if p == "inline" {
+			inline = true
+			break
+		}
+	}
+
+	return name, inline
 }
