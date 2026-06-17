@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -17,10 +16,10 @@ import (
 )
 
 var (
-	ErrInvalidRef = errors.New("invalid ref")
-	ErrNoRows     = pgx.ErrNoRows
-	ErrNoTableTag = errors.New("no table tag")
-	ErrNothingToInsert = errors.New("nothing to insert")
+	ErrInvalidRef       = errors.New("invalid ref")
+	ErrNoRows           = pgx.ErrNoRows
+	ErrNoTableTag       = errors.New("no table tag")
+	ErrNothingToInsert  = errors.New("nothing to insert")
 	ErrInvalidBatchSize = errors.New("invalid batch size")
 )
 
@@ -76,15 +75,15 @@ func InsertMany(ctx context.Context, e Executor, batchSize int, entity any) ([]p
 		columns = append(columns, column)
 	}
 
-	if len(columns) * batchSize > 65535 {
+	if len(columns)*batchSize > 65535 {
 		return nil, ErrInvalidBatchSize
 	}
 
 	var batches []reflect.Value
-	for i := range int(math.Ceil(float64(v.Len())/float64(batchSize))) {
-		sliceStart := i*batchSize
+	for i := range (v.Len() + batchSize - 1) / batchSize {
+		sliceStart := i * batchSize
 		sliceEnd := min((i+1)*batchSize, v.Len())
-		batches = append(batches,  v.Slice(sliceStart, sliceEnd))
+		batches = append(batches, v.Slice(sliceStart, sliceEnd))
 	}
 
 	var batchResults []pgconn.CommandTag
@@ -108,15 +107,19 @@ func InsertMany(ctx context.Context, e Executor, batchSize int, entity any) ([]p
 			}
 			for j := 0; j < t.NumField(); j++ {
 				tag := t.Field(j).Tag
-				if !arrVal.Field(j).CanInterface() {
-					return nil, errors.New("invalid field")
+				column := tag.Get("db")
+				if len(column) == 0 {
+					continue
+				}
+				fv := arrVal.Field(j)
+				if !fv.CanInterface() {
+					continue
 				}
 				if tag.Get("default") == "true" {
 					values = append(values, "default")
 					continue
 				}
 
-				fv := arrVal.Field(j)
 				if fv.Kind() == reflect.Ptr && fv.IsNil() {
 					args = append(args, nil)
 					values = append(values, fmt.Sprintf("$%d", len(args)))
@@ -148,6 +151,10 @@ func InsertMany(ctx context.Context, e Executor, batchSize int, entity any) ([]p
 			allValues = append(allValues, "("+strings.Join(values, ", ")+")")
 		}
 
+		if len(allValues) == 0 {
+			continue
+		}
+
 		buf := bytes.NewBufferString(fmt.Sprintf("insert into %s ", tableTag))
 		buf.WriteString(fmt.Sprintf(
 			"(%s) values %s",
@@ -167,7 +174,9 @@ func InsertMany(ctx context.Context, e Executor, batchSize int, entity any) ([]p
 				return nil, err
 			}
 			rows.Close()
-			return []pgconn.CommandTag{rows.CommandTag()}, nil
+
+			batchResults = append(batchResults, rows.CommandTag())
+			continue
 		}
 
 		tag, err := e.Exec(ctx, buf.String(), args...)
@@ -177,6 +186,11 @@ func InsertMany(ctx context.Context, e Executor, batchSize int, entity any) ([]p
 
 		batchResults = append(batchResults, tag)
 	}
+
+	if len(batchResults) == 0 {
+		return nil, ErrNothingToInsert
+	}
+
 	return batchResults, nil
 }
 
@@ -279,6 +293,10 @@ func Insert(ctx context.Context, e Executor, entity any) (pgconn.CommandTag, err
 }
 
 func getTable(t reflect.Type) (string, error) {
+	if t.NumField() == 0 {
+		return "", ErrNoTableTag
+	}
+
 	tableTag, ok := t.Field(0).Tag.Lookup("table")
 	if !ok {
 		return "", ErrNoTableTag
