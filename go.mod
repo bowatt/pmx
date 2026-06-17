@@ -1,6 +1,6 @@
 module github.com/wcamarao/pmx
 
-go 1.21
+go 1.22
 
 require (
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
