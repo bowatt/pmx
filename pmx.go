@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -29,7 +30,7 @@ type Executor interface {
 }
 
 func InsertMany(ctx context.Context, e Executor, batchSize int, entity any) ([]pgconn.CommandTag, error) {
-	if batchSize < 1 || batchSize >= 65535 {
+	if batchSize < 1 || batchSize >= math.MaxUint16 {
 		return nil, ErrInvalidBatchSize
 	}
 	t := reflect.TypeOf(entity)
@@ -75,7 +76,7 @@ func InsertMany(ctx context.Context, e Executor, batchSize int, entity any) ([]p
 		columns = append(columns, column)
 	}
 
-	if len(columns)*batchSize > 65535 {
+	if len(columns)*batchSize > math.MaxUint16 {
 		return nil, ErrInvalidBatchSize
 	}
 
